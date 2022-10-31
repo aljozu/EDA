@@ -24,7 +24,9 @@ int main()
     RTree *rTree = new RTree();
     //rTree.insert(figure);
     //rTree.bfs(window);
-    std::vector<Figure> figures;
+    std::vector<Figure> figures, foundFigures;
+    CircleShape circleShape(2);
+    circleShape.setFillColor(Color::Yellow);
     while (window.isOpen())
     {
         sf::Event event{};
@@ -70,6 +72,12 @@ int main()
                             break;
                         case 5:
                             //knn
+                            if(event.mouseButton.x < 600) {
+                                foundFigures = rTree->depthFirst({static_cast<float>(event.mouseButton.x),
+                                                                      static_cast<float>(event.mouseButton.y)}, 3);
+                                circleShape.setPosition({static_cast<float>(event.mouseButton.x),
+                                                         static_cast<float>(event.mouseButton.y)});
+                            }
                             break;
                         default:
                             break;
@@ -83,6 +91,10 @@ int main()
             aux_fig.drawLines(window);
         }
         rTree->bfs(window);
+        if(op == 5 && !foundFigures.empty()){
+            window.draw(circleShape);
+            rTree->drawLinesToFoundFigures(foundFigures, window, circleShape);
+        }
         //for(auto x: figures)
            // x.draw(window);
         sidebar.renderSideBar(window);

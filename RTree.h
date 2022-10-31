@@ -17,13 +17,27 @@ static bool orderByHighestDistance(pair<Node*, double> p1, pair<Node*, double> p
     return p1.second > p2.second;
 }
 
-bool isPowerOfTwo(int n)
-{
-    if (n == 0)
-        return false;
 
-    return (ceil(log2(n)) == floor(log2(n)));
+static float distanceMBB(Vector2f p, MBB node){
+    auto dx = max({node.topLeft.x - p.x, float(0), p.x - node.bottomRight.x});
+    auto dy = max({node.topLeft.y - p.y, float(0), p.y - node.bottomRight.y});
+    return sqrt(dx*dx + dy*dy);
 }
+
+struct LessThanByMBB {
+    bool operator()(Figure* f1, Figure*f2, Vector2f p) const
+    {
+        MBB m1 = f1->getBoundingBox();
+        MBB m2 = f2->getBoundingBox();
+        return distanceMBB(p, m1) < distanceMBB(p, m2);
+    }
+};
+
+struct compareNodes{
+    bool operator()(pair<Node*, float> n1, pair<Node*, float> n2){
+        return n1.second > n2.second;
+    }
+};
 
 MBB pickLowerSum(vector<MBB> boxes){
     MBB temp;
@@ -56,10 +70,24 @@ MBB pickHighestSum(vector<MBB> boxes){
 double getDistance(Vector2f p1, Vector2f p2){
     return sqrt((p2.x - p1.x) * (p2.x - p1.x) + (p2.y - p1.y)*(p2.y - p1.y) );
 }
+float distanceNodePoint(Node* node, Vector2f p){
+    MBB box = node->boundingBox;
+    float centerX = (box.topRight.x - box.topLeft.x) / 2;
+    float centerY = (box.bottomLeft.y - box.topLeft.y) / 2;
+    return sqrt((centerX - p.x)*(centerX - p.x) + (centerY - p.y) * (centerY - p.y));
+}
+
+float distancePointFigure(Vector2f p, Node* node){
+    auto dx = max({node->boundingBox.topLeft.x - p.x, float(0), p.x - node->boundingBox.bottomRight.x});
+    auto dy = max({node->boundingBox.topLeft.y - p.y, float(0), p.y - node->boundingBox.bottomRight.y});
+    return sqrt(dx*dx + dy*dy);
+}
 
 class RTree
 {
     Node* root;
+    float dk = 0;
+    float minRad = 100000;
 
     Node* split(Node* auxNode){
         vector<MBB> boxes;
@@ -87,16 +115,10 @@ class RTree
         sort(lowerEntries.begin(), lowerEntries.end(), orderByHighestDistance);
         for(auto x: highestEntries)
             n2.push_back(x.first);
-        cout << "partition 1: \n";
         for(auto x: n2)
-            //cout << '{' << x->boundingBox.topLeft.x << x->boundingBox.topLeft.y << '}'
-        cout << " {" << x->boundingBox.bottomRight.x << ' ' << x->boundingBox.bottomRight.y << "} \n";
-        cout << "partition 2: \n";
         for(auto x: auxNode->children)
-           // cout << '{' << x->boundingBox.topLeft.x << x->boundingBox.topLeft.y << '}'
-            cout      << " {" << x->boundingBox.bottomRight.x << ' ' <<  x->boundingBox.bottomRight.y << "} \n";
+
         return new Node(n2);
-        //return make_pair(n1, n2);
     }
 
     void handleOverflow(Node* node){
@@ -115,7 +137,6 @@ class RTree
             w->children.push_back(u);
             w->mergeBoundingBoxes();
             if(w->children.size() == M + 1){
-                cout << "entra";
                 handleOverflow(w);
                 w->mergeBoundingBoxes();
             }
@@ -125,46 +146,32 @@ class RTree
     Node* chooseSubTree(Node* node, Figure figure){
         float minPerimeter = std::numeric_limits<float>::max();
         auto ans = new Node();
-        cout << "nodeeee perimeter "<<node->boundingBox.perimeter() << "\n";
         for(auto n: node->children){
-            cout << "n perimeter "<<n->boundingBox.perimeter() << "\n";
-
             auto auxBB = figure.getBoundingBox();
             auxBB.merge(n->boundingBox);
             auto p = auxBB.perimeter();
-            cout << "Perimeter : " << p << endl;
             if(p == 0) return n;
             if(p < minPerimeter){
                 minPerimeter = p;
                 ans = n;
             }
         }
-        cout << "ans perimeter "<<ans->boundingBox.perimeter() << "\n";
         return ans;
     }
+
     Node* insertRect(Node* node, Figure figure){
         if(node->isLeaf()){
-            cout << '{' << figure.boundingBox.topLeft.x << " " << figure.boundingBox.topLeft.y << "} \n";
-            cout << "node perimeter " << node->boundingBox.perimeter() << endl;
             auto auxNode = new leafNode(figure);
-            //cout << '{' << auxNode->boundingBox.topLeft.x << " " << auxNode->boundingBox.topLeft.y << "} \n";
             (node->children).push_back(auxNode);
-            //cout << "vector size " << node->children.size() << '\n';
             auxNode->father = node;
             node->mergeBoundingBoxes();
-           // node->mergeBB(figure.boundingBox);
-           // cout << "Merged Bound: \n";
-            //cout << '{' << node->boundingBox.topLeft.x << " " << node->boundingBox.topLeft.y << ' '
-                // << node->boundingBox.bottomRight.x << " " << node->boundingBox.bottomRight.y <<  '}' << '\n';
             if(node->children.size() == M+1) {
                 handleOverflow(node);
             }
         } else {
             auto bestSubTree = chooseSubTree(node, figure);
-            cout << "bestsubtree perimeter : " << bestSubTree->boundingBox.perimeter() << "\n";
             insertRect(bestSubTree, figure);
             node->mergeBoundingBoxes();
-            //node->mergeBB(figure.boundingBox);
         }
         if(node->father)
             return node->father;
@@ -180,8 +187,89 @@ public:
         root = insertRect(root, figure);
     }
 
-    void knnSearch(Vector2f point, int n){
+    vector<Figure> knnSearch(Vector2f point, int n){
+        priority_queue<pair<Node*, float>, vector<pair<Node*, float>>, compareNodes> pq;
+        pq.push({root, distancePointFigure(point, root)});
+        vector<Figure> ans;
+        int i = 0;
+        while(!pq.empty()){
+            auto top = pq.top();
+            if(top.first->isLeaf()){
+                ++i;
+                for(auto z: top.first->children)
+                {
+                    //leafNode *ln;
+                    auto ln = dynamic_cast<leafNode *> (z);
+                    ans.push_back(ln->getFigure());
+                }
+            }
+            if(i == n) break;
+            pq.pop();
+            for(auto &x: top.first->children){
+                if(x != nullptr)
+                    pq.push({x, distancePointFigure(point, x)});
+            }
+        }
+        return ans;
+    }
 
+
+
+    template<typename cmp>
+    void k_depthFirst(std::priority_queue<Figure , std::vector<Figure>, cmp> &pq, int &k, Node* node, Vector2f p){
+
+
+        if(node->isLeaf()){
+            for(auto f: node->children){
+                if(dk + distanceNodePoint(f, p) < distancePointFigure(p, f))
+                    continue;
+                else
+                {
+                    pq.push(dynamic_cast<leafNode *>(f)->getFigure());
+                    if (distancePointFigure(p, f) > dk)
+                        dk = distancePointFigure(p, f);
+                    if (pq.size() > (unsigned) k) pq.pop();
+                }
+            }
+            return;
+        }
+
+
+        for(auto r: node->children){
+            auto rad = r->getRadio();
+            if(rad < minRad)
+                minRad = rad;
+            if(dk + distanceNodePoint(r, p) < minRad)
+                continue;
+            else
+                k_depthFirst(pq,k,r, p);
+        }
+    }
+
+    vector<Figure> depthFirst(Vector2f p, int k){
+        std::vector<Figure> ans;
+        auto cmp  = [&p](Figure f1, Figure f2){
+            MBB m1 = f1.getBoundingBox();
+            MBB m2 = f2.getBoundingBox();
+            return distanceMBB(p, m1) < distanceMBB(p, m2);
+        };
+        std::priority_queue<Figure , std::vector<Figure>, decltype(cmp) > pq(cmp);
+        k_depthFirst(pq,k,root, p);
+        while(!pq.empty()){
+            auto t = pq.top();
+            ans.push_back(t);
+            pq.pop();
+        }
+        return ans;
+    }
+
+
+    void drawLinesToFoundFigures(vector<Figure> figures, RenderWindow& renderWindow, CircleShape circle){
+        for (int i = 0; i < figures.size(); ++i)
+        {
+            sf::Vertex vertices[2] = {Vertex(circle.getPosition()), Vertex(figures[i].getBoundingBox().topLeft, Color::Blue)};
+            renderWindow.draw(vertices, 2, sf::Lines);
+        }
     }
 
     void bfs(RenderWindow &renderWindow){
@@ -191,22 +279,14 @@ public:
         while(!q.empty()){
             ++i;
             Node* no = q.front();
-            //cout << '{' << no->boundingBox.topLeft.x << " " << no->boundingBox.topLeft.y << ' '
-            //<< no->boundingBox.bottomRight.x << " " << no->boundingBox.bottomRight.y <<  '}' << '\n';
-            //if(no->isLeaf())
-
-
-            //if (isPowerOfTwo(i))
-                //no->boundingBox.color = Color(255, 0, i*100);
-                if(no != root)
-                    no->draw(renderWindow);
+            if(no != root)
+               no->draw(renderWindow);
             q.pop();
             for(auto &x: no->children){
                 if(x != nullptr)
                     q.push(x);
             }
         }
-        //cout << "===============================================\n";
     }
 };
 

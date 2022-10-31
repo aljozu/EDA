@@ -12,12 +12,14 @@ struct Node{
     MBB boundingBox;
     std::vector<Node*> children;
     Node* father = nullptr;
+    CircleShape boundingCircle;
 
     //constructors
     Node() = default;
     Node(std::vector<Node*> nodes){
         copy(nodes.begin(), nodes.end(), back_inserter(children));
         mergeBoundingBoxes();
+        boundingCircle.setOutlineColor(Color::Blue);
     }
     Node(MBB mbb) : boundingBox{mbb} {}
 
@@ -32,29 +34,24 @@ struct Node{
 
     virtual void draw(RenderWindow &window){
         boundingBox.draw(window);
+        window.draw(boundingCircle);
     }
 
     void mergeBoundingBoxes(){
-        /*
-        vector<Vector2f> topLeftPoints;
-        vector<Vector2f> bottomRightPoints;
-
-        for(auto &x: children) {
-            topLeftPoints.push_back(x->boundingBox.topLeft);
-            bottomRightPoints.push_back(x->boundingBox.bottomRight);
-        }
-        sort(topLeftPoints.begin(), topLeftPoints.end(), sortPointsX);
-        sort(bottomRightPoints.begin(), bottomRightPoints.end(), sortPointsY);
-
-        Vector2f topLeft = {topLeftPoints[0].x, bottomRightPoints[bottomRightPoints.size()-1].y};
-        Vector2f bottomRight = {topLeftPoints[topLeftPoints.size()-1].x, bottomRightPoints[0].y};
-        boundingBox = MBB(topLeft, bottomRight);
-         */
         auto auxFig = children[0]->boundingBox;
+        auto auxCircle = children[0]->boundingCircle;
         for(auto x: children){
            auxFig = mergeTwoBoxes(auxFig, x->boundingBox);
+           auxCircle = mergeTwoCircles(auxCircle, x->boundingCircle);
         }
+        auxCircle.setPosition((boundingBox.topRight.x - boundingBox.topLeft.x)/2,
+                              (boundingBox.bottomLeft.y - boundingBox.topLeft.y) / 2);
+        boundingCircle = auxCircle;
         boundingBox = auxFig;
+    }
+
+    CircleShape mergeTwoCircles(CircleShape c1, CircleShape c2){
+        return CircleShape(max(c1.getRadius(), c2.getRadius()));
     }
     MBB mergeTwoBoxes(MBB BB, MBB auxBB){
         Vector2f topleft = {min(BB.topLeft.x, auxBB.topLeft.x),
@@ -64,6 +61,11 @@ struct Node{
         return {topleft, bottomRight};
     }
 
+    float getRadio(){
+        float centerX = (boundingBox.topRight.x - boundingBox.topLeft.x) / 2;
+        float centerY = (boundingBox.bottomLeft.y - boundingBox.topLeft.y) / 2;
+        return sqrt((boundingBox.topLeft.x - centerX ) * (boundingBox.topLeft.x - centerX ) + (boundingBox.topLeft.y - centerY) * (boundingBox.topLeft.y - centerY));
+    }
     void mergeBB(MBB auxBB){
         if(children.size() == 1){
             boundingBox = auxBB;
@@ -76,6 +78,7 @@ struct Node{
             boundingBox = MBB(topleft, bottomRight);
         }
     }
+    //virtual Figure getFigure();
 };
 
 struct leafNode: Node{
@@ -94,6 +97,7 @@ struct leafNode: Node{
     void draw(RenderWindow &window) override {
         boundingBox.draw(window);
         figure.draw(window);
+        window.draw(boundingCircle);
     }
 
     Figure getFigure() {return figure;}
